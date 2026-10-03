@@ -14,7 +14,7 @@ import {
 import { motion } from 'motion/react'
 import { generateFindings, inspectInput } from './analyzer'
 import { scanStages } from './data'
-import type { Finding, InputKind } from './types'
+import type { Finding, InputKind, RenderEvidence } from './types'
 import './styles.css'
 
 function App() {
@@ -28,6 +28,7 @@ function App() {
   const [error, setError] = React.useState('')
   const [sourceLabel, setSourceLabel] = React.useState('')
   const [fileCount, setFileCount] = React.useState(0)
+  const [render, setRender] = React.useState<RenderEvidence | undefined>()
 
   const canStart = inputKind === 'zip' ? Boolean(uploadedFile) : inputValue.trim().length > 0
 
@@ -42,11 +43,13 @@ function App() {
       setFindings(generateFindings(project))
       setSourceLabel(project.sourceLabel)
       setFileCount(project.files.length)
+      setRender(project.render)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'TRACE could not read this submission.')
       setFindings([])
       setSourceLabel(inputKind === 'zip' ? uploadedFile?.name ?? '' : inputValue.trim())
       setFileCount(0)
+      setRender(undefined)
     } finally {
       setScanning(false)
     }
@@ -59,6 +62,7 @@ function App() {
     setError('')
     setSourceLabel('')
     setFileCount(0)
+    setRender(undefined)
   }
 
   return (
@@ -142,6 +146,13 @@ function App() {
           </div>
 
           {error ? <div className="report-error" role="alert"><strong>TRACE could not complete this scan.</strong><span>{error}</span><small>Nothing below is inferred from a template. Fix the source or submit another project.</small></div> : scanning ? <div className="empty-report">Parsing source files and checking concrete markup, styles, and project metadata…</div> : (
+            <>
+            {render && (render.available && render.viewports?.length ? <div className="render-evidence" aria-label="Rendered viewport evidence">
+              <div className="render-evidence-head"><span className="mono">RENDERED EVIDENCE</span><span className="mono muted">CHROMIUM · 3 VIEWPORTS</span></div>
+              <div className="render-viewport-list">
+                {render.viewports.map((viewport) => <figure key={viewport.id} className="render-card"><img src={viewport.screenshot} alt={`${viewport.id} viewport screenshot`} /><figcaption><span>{viewport.id}</span><span className="mono muted">{viewport.width}×{viewport.height}</span>{viewport.metrics.horizontalOverflow && <strong>overflow</strong>}</figcaption></figure>)}
+              </div>
+            </div> : <div className="render-limitation" role="status"><span className="mono">RENDERED ANALYSIS UNAVAILABLE</span><span>{render.reason ?? 'TRACE could not start a supported browser renderer for this runtime.'}</span><small>Source and accessibility analysis are still shown; no visual findings were inferred.</small></div>)}
             <div className="report-grid">
               <aside className="report-side">
                 <div className="metric-block"><span className="mono muted">FINDINGS</span><strong>{String(findings.length).padStart(2, '0')}</strong></div>
@@ -153,7 +164,7 @@ function App() {
                 {findings.length ? findings.map((finding) => <button key={finding.id} className="finding-row" onClick={() => setSelectedFinding(finding)}><span className="finding-id mono">{finding.id}</span><span className="finding-main"><span className="finding-title">{finding.title}</span><span className="finding-summary">{finding.evidence}</span></span><span className={`severity severity-${finding.severity}`}>{finding.severity}</span><ChevronRight size={18} className="finding-arrow" /></button>) : <div className="empty-report"><strong>No evidence-backed findings.</strong><span>The inspected source did not trigger TRACE’s current checks. This is a clean result with no inferred output.</span></div>}
               </div>
             </div>
-          )}
+            </>)}
 
           {selectedFinding && <FindingDrawer finding={selectedFinding} onClose={() => setSelectedFinding(null)} />}
         </section>

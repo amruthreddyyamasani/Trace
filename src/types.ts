@@ -33,4 +33,50 @@ export type ProjectEvidence = {
   sourceLabel: string
   kind: InputKind
   files: { path: string; text: string }[]
+  render?: RenderEvidence
+}
+
+export type RenderElement = {
+  tag: string
+  id: string
+  className: string
+  text: string
+  selector: string
+  x: number
+  y: number
+  width: number
+  height: number
+  right: number
+  bottom: number
+  position: string
+  fontSize: string
+  lineHeight: string
+  visible: boolean
+}
+
+export type RenderViewport = {
+  id: 'desktop' | 'laptop' | 'mobile'
+  width: number
+  height: number
+  screenshot: string
+  metrics: {
+    viewport: { width: number; height: number }
+    bodyScrollWidth: number
+    bodyScrollHeight: number
+    horizontalOverflow: boolean
+    verticalOverflow: boolean
+    overflow: RenderElement[]
+    fixed: RenderElement[]
+    headings: RenderElement[]
+    images: RenderElement[]
+    controls: RenderElement[]
+    textLength: number
+  }
+}
+
+export type RenderEvidence = {
+  available: boolean
+  reason?: string
+  url?: string
+  viewports?: RenderViewport[]
 }

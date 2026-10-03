@@ -127,3 +127,15 @@ h1 span { color: #9ba3a4; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+.render-evidence { margin-top: 42px; border-top: 1px solid var(--line); padding-top: 18px; }
+.render-evidence-head { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 14px; }
+.render-viewport-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.render-card { margin: 0; border: 1px solid var(--line); background: #0c0f10; min-width: 0; }
+.render-card img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; display: block; border-bottom: 1px solid var(--line); }
+.render-card figcaption { padding: 9px 10px; display: flex; justify-content: space-between; gap: 8px; font-size: 11px; text-transform: uppercase; }
+.render-card figcaption strong { color: var(--red); font: 9px "IBM Plex Mono", ui-monospace, monospace; }
+.render-limitation { margin-top: 42px; border: 1px solid var(--line); padding: 17px; display: grid; gap: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.render-limitation > .mono { color: var(--amber); font-size: 10px; }
+.render-limitation small { color: #9da6a7; }
+@media (max-width: 600px) { .render-viewport-list { grid-template-columns: 1fr; } .render-card img { aspect-ratio: 16 / 9; } }
