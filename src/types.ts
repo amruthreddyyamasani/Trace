@@ -27,6 +27,14 @@ export type Finding = {
   location: string
   recommendation: string
   status: 'open' | 'reviewed' | 'fixed'
+  severityReason?: string
+  evidenceRef?: {
+    route: string
+    viewport: string
+    screenshot?: string
+    selector?: string
+    measurement?: string
+  }
 }
 
 export type ProjectEvidence = {
@@ -59,6 +67,7 @@ export type RenderViewport = {
   width: number
   height: number
   screenshot: string
+  highlights: { selector: string; screenshot: string }[]
   metrics: {
     viewport: { width: number; height: number }
     bodyScrollWidth: number
@@ -71,7 +80,14 @@ export type RenderViewport = {
     images: RenderElement[]
     controls: RenderElement[]
     textLength: number
+    regions: RenderElement[]
+    textBlocks: RenderElement[]
   }
+}
+
+export type RenderRouteEvidence = {
+  route: string
+  viewports: RenderViewport[]
 }
 
 export type RenderEvidence = {
@@ -79,4 +95,5 @@ export type RenderEvidence = {
   reason?: string
   url?: string
   viewports?: RenderViewport[]
+  routes?: RenderRouteEvidence[]
 }

@@ -6,6 +6,7 @@ import {
   ChevronRight,
   FileArchive,
   Globe2,
+  Maximize2,
   ScanSearch,
   ShieldCheck,
   Upload,
@@ -14,7 +15,7 @@ import {
 import { motion } from 'motion/react'
 import { generateFindings, inspectInput } from './analyzer'
 import { scanStages } from './data'
-import type { Finding, InputKind, RenderEvidence } from './types'
+import type { Finding, InputKind, RenderEvidence, RenderViewport } from './types'
 import './styles.css'
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
   const [sourceLabel, setSourceLabel] = React.useState('')
   const [fileCount, setFileCount] = React.useState(0)
   const [render, setRender] = React.useState<RenderEvidence | undefined>()
+  const [evidencePreview, setEvidencePreview] = React.useState<{ title: string; screenshot: string } | null>(null)
 
   const canStart = inputKind === 'zip' ? Boolean(uploadedFile) : inputValue.trim().length > 0
 
@@ -38,6 +40,7 @@ function App() {
     setScanning(true)
     setError('')
     setSelectedFinding(null)
+    setEvidencePreview(null)
     try {
       const project = await inspectInput(inputKind, inputValue.trim(), uploadedFile)
       setFindings(generateFindings(project))
@@ -63,6 +66,7 @@ function App() {
     setSourceLabel('')
     setFileCount(0)
     setRender(undefined)
+    setEvidencePreview(null)
   }
 
   return (
@@ -147,12 +151,10 @@ function App() {
 
           {error ? <div className="report-error" role="alert"><strong>TRACE could not complete this scan.</strong><span>{error}</span><small>Nothing below is inferred from a template. Fix the source or submit another project.</small></div> : scanning ? <div className="empty-report">Parsing source files and checking concrete markup, styles, and project metadata…</div> : (
             <>
-            {render && (render.available && render.viewports?.length ? <div className="render-evidence" aria-label="Rendered viewport evidence">
-              <div className="render-evidence-head"><span className="mono">RENDERED EVIDENCE</span><span className="mono muted">CHROMIUM · 3 VIEWPORTS</span></div>
-              <div className="render-viewport-list">
-                {render.viewports.map((viewport) => <figure key={viewport.id} className="render-card"><img src={viewport.screenshot} alt={`${viewport.id} viewport screenshot`} /><figcaption><span>{viewport.id}</span><span className="mono muted">{viewport.width}×{viewport.height}</span>{viewport.metrics.horizontalOverflow && <strong>overflow</strong>}</figcaption></figure>)}
-              </div>
-            </div> : <div className="render-limitation" role="status"><span className="mono">RENDERED ANALYSIS UNAVAILABLE</span><span>{render.reason ?? 'TRACE could not start a supported browser renderer for this runtime.'}</span><small>Source and accessibility analysis are still shown; no visual findings were inferred.</small></div>)}
+            {render && (render.available && render.viewports?.length ? <>
+              <AutopsyOverview findings={findings} render={render} />
+              <ResponsiveComparison render={render} findings={findings} onOpen={(title, screenshot) => setEvidencePreview({ title, screenshot })} />
+            </> : <div className="render-limitation" role="status"><span className="mono">RENDERED ANALYSIS UNAVAILABLE</span><span>{render.reason ?? 'TRACE could not start a supported browser renderer for this runtime.'}</span><small>Source and accessibility analysis are still shown; no visual findings were inferred.</small></div>)}
             <div className="report-grid">
               <aside className="report-side">
                 <div className="metric-block"><span className="mono muted">FINDINGS</span><strong>{String(findings.length).padStart(2, '0')}</strong></div>
@@ -166,7 +168,8 @@ function App() {
             </div>
             </>)}
 
-          {selectedFinding && <FindingDrawer finding={selectedFinding} onClose={() => setSelectedFinding(null)} />}
+          {selectedFinding && <FindingDrawer finding={selectedFinding} onClose={() => setSelectedFinding(null)} onOpen={(title, screenshot) => setEvidencePreview({ title, screenshot })} />}
+          {evidencePreview && <div className="evidence-lightbox" role="dialog" aria-label={evidencePreview.title} onClick={() => setEvidencePreview(null)}><div className="evidence-lightbox-inner" onClick={(event) => event.stopPropagation()}><button className="ghost-button" onClick={() => setEvidencePreview(null)}>Close evidence</button><div className="mono muted">{evidencePreview.title}</div><img src={evidencePreview.screenshot} alt={evidencePreview.title} /></div></div>}
         </section>
       )}
     </main>
@@ -177,13 +180,50 @@ function InputTab({ active, onClick, icon, label }: { active: boolean; onClick: 
   return <button type="button" role="tab" aria-selected={active} className={active ? 'input-tab active' : 'input-tab'} onClick={onClick}>{icon}{label}</button>
 }
 
-function FindingDrawer({ finding, onClose }: { finding: Finding; onClose: () => void }) {
+function FindingDrawer({ finding, onClose, onOpen }: { finding: Finding; onClose: () => void; onOpen: (title: string, screenshot: string) => void }) {
   return <motion.aside className="drawer" initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} role="dialog" aria-label={finding.title}>
     <div className="drawer-head"><div><span className="mono muted">{finding.id} / {finding.category} / {finding.severity}</span><h3>{finding.title}</h3></div><button className="icon-button" onClick={onClose} aria-label="Close finding"><X size={18} /></button></div>
+    {finding.severityReason && <div className="severity-reason"><span className="mono">SEVERITY BASIS</span><p>{finding.severityReason}</p></div>}
+    {finding.evidenceRef?.screenshot && <button className="drawer-evidence" onClick={() => onOpen(`${finding.evidenceRef?.route} · ${finding.evidenceRef?.viewport} · ${finding.evidenceRef?.selector ?? 'rendered evidence'}`, finding.evidenceRef?.screenshot ?? '')}><img src={finding.evidenceRef.screenshot} alt="Highlighted rendered evidence" /><span><span className="mono">OPEN HIGHLIGHTED EVIDENCE</span><strong>{finding.evidenceRef.viewport} · {finding.evidenceRef.measurement}</strong></span><Maximize2 size={16} /></button>}
+    <div className="evidence-chain"><span className="mono">WHY THIS FINDING EXISTS</span><div><b>DOM</b><ChevronRight size={13} /><b>{finding.evidenceRef?.selector ?? finding.location}</b><ChevronRight size={13} /><b>{finding.evidenceRef?.measurement ?? 'measured source evidence'}</b><ChevronRight size={13} /><b>RULE</b><ChevronRight size={13} /><b>{finding.severity.toUpperCase()}</b></div></div>
     <div className="drawer-sections"><Detail label="PROBLEM" value={finding.problem} /><Detail label="EVIDENCE" value={finding.evidence} /><Detail label="CAUSE" value={finding.cause} /><Detail label="IMPACT" value={finding.impact} /><Detail label="FIX" value={finding.fix} /><Detail label="LOCATION" value={finding.location} /></div>
   </motion.aside>
 }
 
 function Detail({ label, value }: { label: string; value: string }) { return <section className="detail"><span className="mono muted">{label}</span><p>{value}</p></section> }
+
+function AutopsyOverview({ findings, render }: { findings: Finding[]; render: RenderEvidence }) {
+  const visual = findings.filter((finding) => /responsive|layout|typography|interaction/i.test(finding.category))
+  const count = (value: string) => findings.filter((finding) => finding.severity === value).length
+  const routes = render.routes?.map((route) => route.route) ?? ['/']
+  const viewports = new Set((render.routes ?? []).flatMap((route) => route.viewports.map((viewport) => viewport.id)))
+  return <section className="autopsy-overview" aria-label="Autopsy overview">
+    <div className="overview-head"><div><span className="mono">AUTOPSY OVERVIEW</span><strong>What TRACE measured.</strong></div><span className="renderer-status"><i /> RENDERER READY</span></div>
+    <div className="overview-grid">
+      <OverviewMetric label="ROUTES INSPECTED" value={String(routes.length).padStart(2, '0')} detail={routes.join(' · ')} />
+      <OverviewMetric label="VIEWPORTS" value={String(viewports.size || 3).padStart(2, '0')} detail="1440×900 · 1280×800 · 390×844" />
+      <OverviewMetric label="FINDINGS" value={String(findings.length).padStart(2, '0')} detail="evidence-backed" />
+      <OverviewMetric label="CRITICAL / HIGH" value={`${count('critical')} / ${count('high')}`} detail="severity counts" />
+      <OverviewMetric label="MEDIUM / LOW" value={`${count('medium')} / ${count('low')}`} detail="severity counts" />
+      <OverviewMetric label="VISUAL / RESPONSIVE" value={String(visual.length).padStart(2, '0')} detail="rendered evidence" />
+    </div>
+    <div className="overview-tags"><span className="mono">ANALYSIS CHANNELS</span><span>Accessibility {findings.filter((finding) => /accessibility/i.test(finding.category)).length}</span><span>Responsive/Layout {findings.filter((finding) => /responsive|layout/i.test(finding.category)).length}</span><span>Interaction {findings.filter((finding) => /interaction/i.test(finding.category)).length}</span><span>Typography {findings.filter((finding) => /typography/i.test(finding.category)).length}</span></div>
+    <div className="scan-pipeline">{['INGEST', 'SOURCE ANALYSIS', 'RENDER', 'MEASURE', 'CORRELATE', 'FINDINGS'].map((stage, index) => <React.Fragment key={stage}><span><i />{stage}</span>{index < 5 && <ChevronRight size={13} />}</React.Fragment>)}</div>
+  </section>
+}
+
+function OverviewMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return <div className="overview-metric"><span className="mono muted">{label}</span><strong>{value}</strong><small>{detail}</small></div>
+}
+
+function ResponsiveComparison({ render, findings, onOpen }: { render: RenderEvidence; findings: Finding[]; onOpen: (title: string, screenshot: string) => void }) {
+  const routes = render.routes?.length ? render.routes : [{ route: '/', viewports: render.viewports ?? [] }]
+  const primary = routes[0]
+  return <section className="render-evidence" aria-label="Responsive comparison"><div className="render-evidence-head"><div><span className="mono">RESPONSIVE COMPARISON</span><strong>Rendered evidence</strong></div><span className="mono muted">{routes.length} ROUTE{routes.length === 1 ? '' : 'S'} · CLICK TO INSPECT</span></div><div className="route-strip"><span className="mono muted">ROUTES INSPECTED</span>{routes.map((route) => <span key={route.route} className={route.route === primary.route ? 'route-chip active' : 'route-chip'}>{route.route}</span>)}</div><div className="render-viewport-list">{primary.viewports.map((viewport) => <ViewportCard key={viewport.id} viewport={viewport} route={primary.route} findingCount={findings.filter((finding) => finding.evidenceRef?.route === primary.route && finding.evidenceRef?.viewport?.startsWith(`${viewport.width}×`)).length} onOpen={onOpen} />)}</div></section>
+}
+
+function ViewportCard({ viewport, route, findingCount, onOpen }: { viewport: RenderViewport; route: string; findingCount: number; onOpen: (title: string, screenshot: string) => void }) {
+  return <button className="render-card" onClick={() => onOpen(`${route} · ${viewport.id} · ${viewport.width}×${viewport.height}`, viewport.screenshot)}><div className="render-card-image"><img src={viewport.screenshot} alt={`${route} ${viewport.id} viewport screenshot`} />{viewport.metrics.horizontalOverflow && <span className="measurement-badge">OVERFLOW +{viewport.metrics.bodyScrollWidth - viewport.width}px</span>}<span className="expand-badge"><Maximize2 size={13} /></span></div><div className="render-card-caption"><span>{viewport.id}</span><span className="mono muted">{viewport.width}×{viewport.height}</span><span className={findingCount ? 'finding-count active' : 'finding-count'}>{findingCount} finding{findingCount === 1 ? '' : 's'}</span></div></button>
+}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
