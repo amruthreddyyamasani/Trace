@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { Finding, InputKind, ProjectEvidence, Severity } from './types'
+import type { Finding, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
 
 const textExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|md|json)$/i
 const sourceExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|tsx?|jsx?)$/i
@@ -149,7 +149,65 @@ export async function inspectInput(kind: InputKind, value: string, file?: File):
   const payload = await response.json() as { error?: string; html?: string; finalUrl?: string }
   if (!response.ok) throw new Error(payload.error ?? 'TRACE could not fetch that URL.')
   if (!payload.html || !payload.finalUrl) throw new Error('TRACE received no HTML from the fetch service.')
-  return { sourceLabel: payload.finalUrl, kind, files: [{ path: payload.finalUrl, text: payload.html }] }
+  let render: RenderEvidence | undefined
+  try {
+    const renderResponse = await fetch('/api/render-url', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: payload.finalUrl }),
+    })
+    render = await renderResponse.json() as RenderEvidence
+  } catch (error) {
+    render = { available: false, reason: error instanceof Error ? error.message : 'Rendered-page analysis was unavailable.' }
+  }
+  return { sourceLabel: payload.finalUrl, kind, files: [{ path: payload.finalUrl, text: payload.html }], render }
+}
+
+function renderFinding(score: number, category: string, problem: string, evidence: string, cause: string, impact: string, fix: string, location: string) {
+  return makeFinding(0, category, score, problem, evidence, cause, impact, fix, location)
+}
+
+function viewportById(render: RenderEvidence, id: RenderViewport['id']) {
+  return render.viewports?.find((viewport) => viewport.id === id)
+}
+
+function extractRenderedFindings(render: RenderEvidence, location: string): Finding[] {
+  if (!render.available || !render.viewports?.length) return []
+  const findings: Finding[] = []
+  const mobile = viewportById(render, 'mobile')
+  const desktop = viewportById(render, 'desktop')
+  if (!mobile || !desktop) return findings
+
+  if (mobile.metrics.horizontalOverflow) {
+    const culprit = mobile.metrics.overflow[0]
+    const detail = culprit ? ` Selector ${culprit.selector} measures ${culprit.width}px wide at x=${culprit.x}px (right edge ${culprit.right}px).` : ''
+    findings.push(renderFinding(8, 'Layout / responsive', 'The page overflows horizontally on mobile.', `At ${mobile.width}×${mobile.height}, document scroll width is ${mobile.metrics.bodyScrollWidth}px, exceeding the viewport by ${mobile.metrics.bodyScrollWidth - mobile.width}px.${detail} Screenshot evidence: ${mobile.id} viewport.`, 'A rendered element or fixed-width container is wider than the mobile viewport.', 'Users must horizontally scroll and may miss content or controls.', 'Allow the affected container to shrink or wrap at the mobile breakpoint, then verify the 390px render.', `${location} → ${mobile.width}×${mobile.height}`))
+  }
+
+  const mobileControls = mobile.metrics.controls.filter((control) => control.visible && control.width < 44 && control.height < 44)
+  if (mobileControls.length) {
+    const control = mobileControls[0]
+    findings.push(renderFinding(6, 'Interaction / responsive', 'A mobile interactive target is smaller than 44×44 CSS pixels.', `At ${mobile.width}×${mobile.height}, ${control.selector} measures ${control.width}×${control.height}px. Screenshot evidence: ${mobile.id} viewport.`, 'The control keeps a compact rendered box instead of meeting a touch target size.', 'Touch users are more likely to miss the control or trigger an adjacent action.', 'Increase the hit area to at least 44×44px without relying only on visual padding.', `${location} → ${mobile.width}×${mobile.height} → ${control.selector}`))
+  }
+
+  const mobileImages = mobile.metrics.images.filter((image) => image.right > mobile.width + 1 || image.width > mobile.width)
+  if (mobileImages.length && !mobile.metrics.horizontalOverflow) {
+    const image = mobileImages[0]
+    findings.push(renderFinding(7, 'Layout / responsive', 'An image extends beyond its mobile container.', `At ${mobile.width}×${mobile.height}, ${image.selector} measures ${image.width}px wide and reaches x=${image.right}px. Screenshot evidence: ${mobile.id} viewport.`, 'The image width is not constrained by its rendered container.', 'The image can be clipped or force a narrow layout around it.', 'Set a responsive max-width and preserve the image aspect ratio within its container.', `${location} → ${mobile.width}×${mobile.height} → ${image.selector}`))
+  }
+
+  const desktopHeading = desktop.metrics.headings.find((heading) => heading.tag === 'h1')
+  const mobileHeading = mobile.metrics.headings.find((heading) => heading.tag === 'h1')
+  if (desktopHeading && mobileHeading && mobileHeading.width > mobile.width * 1.05) {
+    findings.push(renderFinding(7, 'Typography / responsive', 'The primary heading is wider than the mobile viewport.', `At ${mobile.width}×${mobile.height}, h1 measures ${mobileHeading.width}px wide against a ${mobile.width}px viewport. Screenshot evidence: ${mobile.id} viewport; desktop comparison h1 is ${desktopHeading.width}px wide at ${desktop.width}px.`, 'The heading typography or its containing block does not adapt to the mobile width.', 'The primary message can clip or force horizontal scrolling before the user reaches the main action.', 'Use fluid typography and a max-width that fits the mobile content inset.', `${location} → h1 → ${mobile.width}×${mobile.height}`))
+  }
+
+  const fixedOutside = mobile.metrics.fixed.filter((element) => element.right > mobile.width + 1 || element.x < -1)
+  if (fixedOutside.length) {
+    const element = fixedOutside[0]
+    findings.push(renderFinding(6, 'Layout / interaction', 'A fixed-position element is outside the mobile viewport.', `At ${mobile.width}×${mobile.height}, ${element.selector} is positioned fixed and reaches x=${element.right}px. Screenshot evidence: ${mobile.id} viewport.`, 'The fixed element is anchored to a width or offset larger than the viewport.', 'Persistent controls can become partially inaccessible and cover content.', 'Constrain the fixed element to the viewport and test its safe-area and mobile offsets.', `${location} → ${mobile.width}×${mobile.height} → ${element.selector}`))
+  }
+  return findings
 }
 
 export function generateFindings(project: ProjectEvidence): Finding[] {
@@ -157,6 +215,9 @@ export function generateFindings(project: ProjectEvidence): Finding[] {
   const htmlFiles = project.files.filter((file) => project.kind === 'url' || /\.(html?|vue|svelte)$/i.test(file.path))
   const sourceFiles = project.files.filter((file) => project.kind === 'url' || sourceExtensions.test(file.path))
   htmlFiles.forEach((file) => findings.push(...extractHtmlEvidence(file.text, file.path)))
+  if (project.render) {
+    findings.push(...extractRenderedFindings(project.render, project.sourceLabel))
+  }
 
   const css = fileEvidence(project.files, /\.(css|scss)$/i)
   if (css) {

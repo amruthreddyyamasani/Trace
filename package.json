@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:fetch-url": "node scripts/test-fetch-url.mjs"
+    "test:fetch-url": "node scripts/test-fetch-url.mjs",
+    "test:render-url": "node scripts/test-render-url.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "jszip": "^3.10.2",
     "lucide-react": "^1.51.0",
     "motion": "latest",
+    "playwright-core": "^1.63.0",
     "react": "latest",
     "react-dom": "latest"
   },
