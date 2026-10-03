@@ -14,7 +14,7 @@ if (!publicRender.response.ok || !publicRender.payload.available || publicRender
   throw new Error(`Rendered viewport scan failed: ${JSON.stringify(publicRender.payload)}`)
 }
 const mobile = publicRender.payload.viewports.find((viewport) => viewport.id === 'mobile')
-if (!mobile || mobile.width !== 390 || typeof mobile.metrics.bodyScrollWidth !== 'number' || !mobile.screenshot?.startsWith('data:image/png;base64,')) {
+if (!mobile || mobile.width !== 390 || typeof mobile.metrics.bodyScrollWidth !== 'number' || !mobile.screenshot?.startsWith('data:image/jpeg;base64,')) {
   throw new Error(`Rendered evidence is incomplete: ${JSON.stringify(mobile)}`)
 }
 

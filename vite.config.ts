@@ -65,4 +65,8 @@ function traceApiPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), traceApiPlugin()],
+  server: {
+    host: '0.0.0.0',
+    allowedHosts: true,
+  },
 })
