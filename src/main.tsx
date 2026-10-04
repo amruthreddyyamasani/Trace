@@ -31,6 +31,7 @@ function App() {
   const [fileCount, setFileCount] = React.useState(0)
   const [render, setRender] = React.useState<RenderEvidence | undefined>()
   const [evidencePreview, setEvidencePreview] = React.useState<{ title: string; screenshot: string } | null>(null)
+  const [selectedViewport, setSelectedViewport] = React.useState<'DESKTOP' | 'TABLET' | 'MOBILE'>('MOBILE')
 
   const canStart = inputKind === 'zip' ? Boolean(uploadedFile) : inputValue.trim().length > 0
 
@@ -67,6 +68,7 @@ function App() {
     setFileCount(0)
     setRender(undefined)
     setEvidencePreview(null)
+    setSelectedViewport('MOBILE')
   }
 
   return (
@@ -132,6 +134,8 @@ function App() {
             </div>
           </div>
 
+          <ExamplePreview />
+
           <div className="principles">
             <div><ShieldCheck size={15} /><span><strong>Evidence over vibes.</strong> Findings cite what was read.</span></div>
             <div><ScanSearch size={15} /><span><strong>Cause over symptom.</strong> Each issue includes a causal chain.</span></div>
@@ -153,7 +157,7 @@ function App() {
             <>
             {render && (render.available && render.viewports?.length ? <>
               <AutopsyOverview findings={findings} render={render} />
-              <ResponsiveComparison render={render} findings={findings} onOpen={(title, screenshot) => setEvidencePreview({ title, screenshot })} />
+              <ResponsiveComparison render={render} findings={findings} selectedViewport={selectedViewport} setSelectedViewport={setSelectedViewport} onOpen={(title, screenshot) => setEvidencePreview({ title, screenshot })} />
             </> : <div className="render-limitation" role="status"><span className="mono">RENDERED ANALYSIS UNAVAILABLE</span><span>{render.reason ?? 'TRACE could not start a supported browser renderer for this runtime.'}</span><small>Source and accessibility analysis are still shown; no visual findings were inferred.</small></div>)}
             <div className="report-grid">
               <aside className="report-side">
@@ -216,10 +220,20 @@ function OverviewMetric({ label, value, detail }: { label: string; value: string
   return <div className="overview-metric"><span className="mono muted">{label}</span><strong>{value}</strong><small>{detail}</small></div>
 }
 
-function ResponsiveComparison({ render, findings, onOpen }: { render: RenderEvidence; findings: Finding[]; onOpen: (title: string, screenshot: string) => void }) {
+function ResponsiveComparison({ render, findings, selectedViewport, setSelectedViewport, onOpen }: { render: RenderEvidence; findings: Finding[]; selectedViewport: 'DESKTOP' | 'TABLET' | 'MOBILE'; setSelectedViewport: (value: 'DESKTOP' | 'TABLET' | 'MOBILE') => void; onOpen: (title: string, screenshot: string) => void }) {
   const routes = render.routes?.length ? render.routes : [{ route: '/', viewports: render.viewports ?? [] }]
   const primary = routes[0]
-  return <section className="render-evidence" aria-label="Responsive comparison"><div className="render-evidence-head"><div><span className="mono">RESPONSIVE COMPARISON</span><strong>Rendered evidence</strong></div><span className="mono muted">{routes.length} ROUTE{routes.length === 1 ? '' : 'S'} · CLICK TO INSPECT</span></div><div className="route-strip"><span className="mono muted">ROUTES INSPECTED</span>{routes.map((route) => <span key={route.route} className={route.route === primary.route ? 'route-chip active' : 'route-chip'}>{route.route}</span>)}</div><div className="render-viewport-list">{primary.viewports.map((viewport) => <ViewportCard key={viewport.id} viewport={viewport} route={primary.route} findingCount={findings.filter((finding) => finding.evidenceRef?.route === primary.route && finding.evidenceRef?.viewport?.startsWith(`${viewport.width}×`)).length} onOpen={onOpen} />)}</div></section>
+  const available = ['DESKTOP', 'TABLET', 'MOBILE'] as const
+  const rendererId = selectedViewport === 'TABLET' ? 'laptop' : selectedViewport.toLowerCase()
+  const viewport = primary.viewports.find((item) => item.id === rendererId) ?? primary.viewports[0]
+  if (!viewport) return null
+  const findingCount = findings.filter((finding) => finding.evidenceRef?.route === primary.route && finding.evidenceRef?.viewport?.startsWith(`${viewport.width}×`)).length
+  return <section className="render-evidence" aria-label="Viewport lab"><div className="render-evidence-head"><div><span className="mono">VIEWPORT LAB</span><strong>Rendered evidence</strong></div><span className="mono muted">{primary.route} · {viewport.width}×{viewport.height}</span></div><div className="route-strip"><span className="mono muted">ROUTES INSPECTED</span>{routes.map((route) => <span key={route.route} className={route.route === primary.route ? 'route-chip active' : 'route-chip'}>{route.route}</span>)}</div><div className="viewport-control" role="tablist" aria-label="Rendered viewport">{available.map((id) => <button key={id} role="tab" aria-selected={id === selectedViewport} className={id === selectedViewport ? 'viewport-control-tab active' : 'viewport-control-tab'} onClick={() => setSelectedViewport(id)}>{id}<small>{primary.viewports.find((item) => item.id === (id === 'TABLET' ? 'laptop' : id.toLowerCase()))?.width ?? '—'}×{primary.viewports.find((item) => item.id === (id === 'TABLET' ? 'laptop' : id.toLowerCase()))?.height ?? '—'}</small></button>)}</div><div className="render-viewport-list single"><ViewportCard viewport={viewport} route={primary.route} findingCount={findingCount} onOpen={onOpen} /></div><div className="viewport-finding-note mono">{findingCount ? `${findingCount} finding${findingCount === 1 ? '' : 's'} linked to ${selectedViewport}` : `No ${selectedViewport.toLowerCase()}-specific findings from the submitted evidence`}</div></section>
+}
+
+
+function ExamplePreview() {
+  return <aside className="example-preview" aria-label="Static example finding preview"><div className="example-label mono">EXAMPLE OUTPUT · NOT A SCAN</div><div className="example-content"><div className="example-shot"><div className="shot-bar" /><div className="shot-copy" /><div className="shot-card"><span>PRIMARY CTA</span><span className="shot-button">BEGIN</span></div><div className="measurement mono">→ +38px overflow</div><div className="measure-line" /></div><div className="example-copy"><span className="mono muted">RESPONSIVE BEHAVIOR · HIGH</span><h3>PRIMARY CTA EXCEEDS MOBILE VIEWPORT</h3><p className="mono">390 × 844</p></div></div></aside>
 }
 
 function ViewportCard({ viewport, route, findingCount, onOpen }: { viewport: RenderViewport; route: string; findingCount: number; onOpen: (title: string, screenshot: string) => void }) {
