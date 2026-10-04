@@ -212,3 +212,9 @@ h1 span { color: #9ba3a4; }
 .viewport-control { display: flex; overflow-x: auto; border: 1px solid var(--line); margin-top: 18px; }.viewport-control-tab { min-width: 118px; border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--muted); padding: 11px 13px; text-align: left; cursor: pointer; font: 10px "IBM Plex Mono", monospace; letter-spacing: .07em; }.viewport-control-tab small { display: block; margin-top: 5px; font: 10px inherit; letter-spacing: 0; }.viewport-control-tab.active { color: var(--lime); background: #192018; box-shadow: inset 0 -2px var(--lime); }.render-viewport-list.single { display: block; }.viewport-finding-note { color: var(--muted); font-size: 9px; margin-top: 10px; }
 @media (max-width: 840px) { .example-content { grid-template-columns: 1fr; }.example-preview { max-width: none; } }
 @media (max-width: 600px) { .example-preview { padding: 15px; }.example-shot { height: 145px; }.viewport-control-tab { flex: 1 0 106px; } }
+
+.correlation-chain { margin-top: 22px; border: 1px solid var(--line); padding: 16px; background: rgba(255,255,255,.012); }
+.correlation-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; color: var(--lime); font-size: 9px; }
+.correlation-head strong { color: var(--amber); font: 9px "IBM Plex Mono", monospace; font-weight: 400; }
+.correlation-chain .detail { padding: 14px 0; }
+.correlation-chain .detail:first-of-type { margin-top: 8px; }

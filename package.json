@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:fetch-url": "node scripts/test-fetch-url.mjs",
-    "test:render-url": "node scripts/test-render-url.mjs"
+    "test:render-url": "node scripts/test-render-url.mjs",
+    "test:correlation": "tsx scripts/test-correlation.ts",
+    "test:real-sites": "tsx scripts/test-real-sites.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
@@ -23,6 +25,7 @@
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
     "typescript": "latest",
     "vite": "latest"
   }

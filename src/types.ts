@@ -12,6 +12,22 @@ export type ScanStage =
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 
+export type RootCauseConfidence = 'High' | 'Medium' | 'Low'
+
+export type FindingCorrelation = {
+  observation: string
+  rule: string
+  correlation: string
+  rootCause: string
+  confidence: RootCauseConfidence
+  impact: string
+  fix: string
+  affectedRoutes: string[]
+  affectedViewports: string[]
+  observedViewports: string[]
+  sourceEvidence?: string
+}
+
 export type Finding = {
   id: string
   title: string
@@ -35,6 +51,7 @@ export type Finding = {
     selector?: string
     measurement?: string
   }
+  correlation?: FindingCorrelation
 }
 
 export type ProjectEvidence = {

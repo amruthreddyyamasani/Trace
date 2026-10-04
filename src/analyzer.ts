@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { Finding, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
+import type { Finding, FindingCorrelation, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
 
 const textExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|md|json)$/i
 const sourceExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|tsx?|jsx?)$/i
@@ -179,6 +179,90 @@ function screenshotFor(viewport: RenderViewport, selector?: string) {
   return viewport.highlights.find((highlight) => highlight.selector === selector)?.screenshot ?? viewport.screenshot
 }
 
+function selectorTokens(selector?: string) {
+  if (!selector) return []
+  return selector.split(/\s+/).flatMap((part) => {
+    const tokens = part.match(/(?:\.[A-Za-z0-9_-]+|#[A-Za-z0-9_-]+)/g) ?? []
+    return tokens.map((token) => token.slice(1))
+  })
+}
+
+function sourceRuleFor(project: ProjectEvidence, selector?: string) {
+  const tokens = selectorTokens(selector)
+  if (!tokens.length) return undefined
+  const cssFiles = project.files.filter((file) => /\.(css|scss)$/i.test(file.path))
+  for (const file of cssFiles) {
+    for (const token of tokens) {
+      const match = file.text.match(new RegExp(`[^{}]*[.#]${token}[^{}]*\\{[^}]*\\}`, 'i'))
+      if (match) return `${file.path}: ${clean(match[0]).slice(0, 260)}`
+    }
+  }
+  return undefined
+}
+
+function viewportHasSelector(viewport: RenderViewport, selector?: string) {
+  if (!selector) return false
+  const collections = [viewport.metrics.overflow, viewport.metrics.fixed, viewport.metrics.headings, viewport.metrics.images, viewport.metrics.controls, viewport.metrics.regions, viewport.metrics.textBlocks]
+  return collections.some((collection) => collection.some((element) => element.selector === selector))
+}
+
+function makeCorrelation(finding: Finding, group: Finding[], project: ProjectEvidence): FindingCorrelation {
+  const refs = group.map((item) => item.evidenceRef).filter(Boolean) as NonNullable<Finding['evidenceRef']>[]
+  const affectedRoutes = [...new Set(refs.map((ref) => ref.route))]
+  const affectedViewports = [...new Set(refs.map((ref) => ref.viewport))]
+  const observedViewports = [...new Set((project.render?.routes ?? []).flatMap((route) => route.viewports.filter((viewport) => viewportHasSelector(viewport, finding.evidenceRef?.selector)).map((viewport) => `${viewport.width}×${viewport.height}`)))]
+  const sourceEvidence = sourceRuleFor(project, finding.evidenceRef?.selector)
+  const repeated = affectedRoutes.length > 1 || affectedViewports.length > 1
+  const correlation = repeated || observedViewports.length > 1
+    ? `The same measured condition was observed for ${finding.evidenceRef?.selector ?? 'the referenced element'} across ${affectedRoutes.length} route${affectedRoutes.length === 1 ? '' : 's'}; the selector is present at ${observedViewports.join(' · ') || affectedViewports.join(' · ')}.`
+    : 'Only one affected route and viewport were evidenced; TRACE found no supported systemic repetition.'
+  const rootCause = sourceEvidence
+    ? `Shared source rule is evidenced by ${sourceEvidence}.`
+    : finding.cause
+  const confidence = sourceEvidence && repeated ? 'High' : sourceEvidence || finding.evidenceRef ? 'Medium' : 'Low'
+  return {
+    observation: finding.evidence,
+    rule: `${finding.category} rule: ${finding.title}`,
+    correlation,
+    rootCause,
+    confidence,
+    impact: finding.impact,
+    fix: finding.fix,
+    affectedRoutes,
+    affectedViewports,
+    observedViewports,
+    sourceEvidence,
+  }
+}
+
+function correlateFindings(findings: Finding[], project: ProjectEvidence) {
+  const groups = new Map<string, Finding[]>()
+  findings.forEach((finding) => {
+    const key = finding.evidenceRef ? `${finding.title}|${finding.evidenceRef.selector ?? finding.category}` : `${finding.id}|${finding.location}`
+    const group = groups.get(key) ?? []
+    group.push(finding)
+    groups.set(key, group)
+  })
+  const correlated: Finding[] = []
+  for (const group of groups.values()) {
+    const first = group[0]
+    const correlation = makeCorrelation(first, group, project)
+    const systemic = group.length > 1
+    const evidence = correlation.sourceEvidence
+      ? `${first.evidence} Source evidence: ${correlation.sourceEvidence}`
+      : first.evidence
+    correlated.push({
+      ...first,
+      title: systemic ? `Systemic: ${first.title}` : first.title,
+      problem: systemic ? `${first.problem} (repeated across inspected evidence).` : first.problem,
+      evidence,
+      cause: correlation.rootCause,
+      correlation,
+    })
+  }
+  return correlated
+}
+
 function extractRenderedFindings(render: RenderEvidence, location: string): Finding[] {
   if (!render.available) return []
   const findings: Finding[] = []
@@ -270,5 +354,5 @@ export function generateFindings(project: ProjectEvidence): Finding[] {
       project.sourceLabel))
   }
 
-  return findings.map((finding, index) => ({ ...finding, id: `F-${String(index + 1).padStart(2, '0')}` }))
+  return correlateFindings(findings, project).map((finding, index) => ({ ...finding, id: `F-${String(index + 1).padStart(2, '0')}` }))
 }

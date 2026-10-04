@@ -40,8 +40,22 @@ Findings use the explicit chain **Problem → Evidence → Cause → Impact → 
 2. Normalize the project into routes, assets, components, styles, and runtime states.
 3. Capture representative screens and interaction states.
 4. Inspect source-level evidence.
-5. Generate findings from matched evidence and measured counts.
-6. Build causal chains rather than generic suggestions.
+5. Generate observations from matched evidence and measured counts.
+6. Correlate observations with source rules, routes, and viewports.
+7. Deduplicate repeated observations into systemic findings only when the same selector/rule is evidenced.
+8. Build **Observation → Evidence → Rule → Correlation → Root Cause → Impact → Fix** chains rather than generic suggestions.
+
+## M3 forensic correlation
+
+Rendered findings now retain their route, viewport, selector, screenshot, and measurement references while `generateFindings` performs the correlation step. When a matching CSS/SCSS rule is present, TRACE attaches the concrete source rule and raises root-cause confidence only when the source and repeated observations support it. Repeated findings for the same measured selector are consolidated into a systemic finding with affected routes and viewports; unsupported repetition remains a single observation with lower confidence.
+
+Run the M3 regression fixture:
+
+```bash
+npm run test:correlation
+npm run test:fetch-url
+npm run test:render-url
+```
 
 ## AI sweep / anti-AI testing
 
