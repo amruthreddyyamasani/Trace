@@ -52,7 +52,21 @@ function makeFinding(
   }
 }
 
-function extractHtmlEvidence(html: string, location: string): Finding[] {
+function responsiveEvidenceFor(render: RenderEvidence | undefined) {
+  if (!render?.available) return undefined
+  const routes = render.routes?.length ? render.routes : [{ route: '/', viewports: render.viewports ?? [] }]
+  const observations: string[] = []
+  for (const route of routes) {
+    const mobile = route.viewports.find((viewport) => viewport.id === 'mobile')
+    if (!mobile) continue
+    if (mobile.metrics.horizontalOverflow) observations.push(`${route.route} mobile document scroll width ${mobile.metrics.bodyScrollWidth}px exceeds the ${mobile.width}px viewport`)
+    const outside = [...mobile.metrics.overflow, ...mobile.metrics.images, ...mobile.metrics.fixed].find((element) => element.right > mobile.width + 1 || element.x < -1)
+    if (outside) observations.push(`${route.route} mobile ${outside.selector} reaches x=${outside.right}px at a ${mobile.width}px viewport`)
+  }
+  return observations.length ? observations.join('; ') : undefined
+}
+
+function extractHtmlEvidence(html: string, location: string, responsiveEvidence?: string): Finding[] {
   const findings: Finding[] = []
   const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
   const hasViewport = /<meta\b[^>]*name=["']viewport["']/i.test(html)
@@ -77,12 +91,12 @@ function extractHtmlEvidence(html: string, location: string): Finding[] {
       'Add a route-specific <title> that names the product and the current page.',
       location))
   }
-  if (!hasViewport) {
+  if (!hasViewport && responsiveEvidence) {
     findings.push(makeFinding(0, 'Responsive behavior', 7,
-      'The page does not declare a viewport.',
-      `Parsed ${location}: no meta[name="viewport"] was found.`,
-      'The mobile layout has no explicit viewport contract.',
-      'Mobile browsers may render the page at a desktop layout width and force users to zoom or pan.',
+      'The page lacks viewport metadata and shows a measured mobile layout failure.',
+      `Parsed ${location}: no meta[name="viewport"] was found; rendered evidence also shows ${responsiveEvidence}.`,
+      'The missing viewport contract is correlated with a concrete mobile rendering symptom rather than treated as an isolated metadata omission.',
+      'Users may encounter the measured mobile overflow or clipping because the browser is not given the intended viewport scaling contract.',
       'Add <meta name="viewport" content="width=device-width, initial-scale=1"> and verify the smallest route.',
       `${location} → <head>`))
   }
@@ -277,10 +291,15 @@ function extractRenderedFindings(render: RenderEvidence, location: string): Find
       const detail = culprit ? ` ${culprit.selector} measures ${culprit.width}px wide at x=${culprit.x}px (right edge ${culprit.right}px).` : ''
       findings.push(renderFinding(8, 'Layout / responsive', 'The page overflows horizontally on mobile.', `At ${mobile.width}×${mobile.height}, document scroll width is ${mobile.metrics.bodyScrollWidth}px, exceeding the viewport by ${mobile.metrics.bodyScrollWidth - mobile.width}px.${detail}`, 'A rendered element or fixed-width container is wider than the mobile viewport.', 'Users must horizontally scroll and may miss content or controls.', 'Allow the affected container to shrink or wrap at the mobile breakpoint, then verify the 390px render.', `${routeLocation} → ${mobile.width}×${mobile.height}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, culprit?.selector), selector: culprit?.selector, measurement: `${mobile.metrics.bodyScrollWidth}px scroll width vs ${mobile.width}px viewport` }))
     }
-    const mobileControls = mobile.metrics.controls.filter((control) => control.visible && control.width < 44 && control.height < 44)
+    const mobileControls = mobile.metrics.controls.filter((control) => {
+      const semantic = /^(button|a|input|select|textarea)$/.test(control.tag) || /^(button|link|checkbox|menuitem)$/.test(control.role ?? '') || Boolean(control.interactiveAncestorSelector)
+      const descendantArtifact = Boolean(control.interactiveAncestorSelector) && control.interactiveAncestorSelector !== control.selector
+      const wideTextLink = control.tag === 'a' && control.text.length > 0 && control.width >= control.height && control.width >= 40
+      return control.visible && !control.visuallyHidden && semantic && !descendantArtifact && !wideTextLink && control.width < 44 && control.height < 44
+    })
     if (mobileControls.length) {
       const control = mobileControls[0]
-      findings.push(renderFinding(6, 'Interaction / responsive', 'A mobile interactive target is smaller than 44×44 CSS pixels.', `At ${mobile.width}×${mobile.height}, ${control.selector} measures ${control.width}×${control.height}px.`, 'The control keeps a compact rendered box instead of meeting a touch target size.', 'Touch users are more likely to miss the control or trigger an adjacent action.', 'Increase the hit area to at least 44×44px without relying only on visual padding.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${control.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, control.selector), selector: control.selector, measurement: `${control.width}×${control.height}px` }))
+      findings.push(renderFinding(6, 'Interaction / responsive', 'A mobile interactive target is smaller than 44×44 CSS pixels.', `At ${mobile.width}×${mobile.height}, the actual ${control.tag} target ${control.selector} measures ${control.width}×${control.height}px; hit-test resolved to ${control.hitTestSelector ?? control.selector}${control.padding ? ` with computed padding ${control.padding}` : ''}.`, 'The actual semantic interactive element remains compact; TRACE did not substitute an inner icon or descendant box for the target geometry.', 'Touch users may miss a genuinely small control or trigger an adjacent action.', 'Increase the actual interactive hit area to at least 44×44px while preserving the visual icon or label size.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${control.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, control.selector), selector: control.selector, measurement: `${control.width}×${control.height}px` }))
     }
     const mobileImages = mobile.metrics.images.filter((image) => image.right > mobile.width + 1 || image.width > mobile.width)
     if (mobileImages.length && !mobile.metrics.horizontalOverflow) {
@@ -307,9 +326,10 @@ function extractRenderedFindings(render: RenderEvidence, location: string): Find
 
 export function generateFindings(project: ProjectEvidence): Finding[] {
   const findings: Finding[] = []
+  const responsiveEvidence = responsiveEvidenceFor(project.render)
   const htmlFiles = project.files.filter((file) => project.kind === 'url' || /\.(html?|vue|svelte)$/i.test(file.path))
   const sourceFiles = project.files.filter((file) => project.kind === 'url' || sourceExtensions.test(file.path))
-  htmlFiles.forEach((file) => findings.push(...extractHtmlEvidence(file.text, file.path)))
+  htmlFiles.forEach((file) => findings.push(...extractHtmlEvidence(file.text, file.path, responsiveEvidence)))
   if (project.render) {
     findings.push(...extractRenderedFindings(project.render, project.sourceLabel))
   }

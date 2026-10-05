@@ -35,14 +35,25 @@ const measurementScript = () => {
   const rect = (element) => {
     const box = element.getBoundingClientRect()
     const style = window.getComputedStyle(element)
+    const interactiveAncestor = element.closest('button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"], [tabindex]:not([tabindex="-1"])')
+    const classText = typeof element.className === 'string' ? element.className : ''
+    const hiddenPattern = /(sr[-_]?only|visually[-_]?hidden|screen[-_]?reader|a11y[-_]?hidden|skip[-_]?link)/i.test(`${classText} ${element.id}`)
+    const clipped = style.clip !== 'auto' || style.clipPath !== 'none' || /inset\s*\(\s*50%/i.test(style.clipPath)
+    const offscreenHidden = (box.right < -1 || box.bottom < -1 || box.left > viewport.width + 1 || box.top > viewport.height + 1) && (style.position === 'absolute' || style.position === 'fixed') && (box.width <= 2 || box.height <= 2 || hiddenPattern)
+    const tinyHidden = box.width <= 1 && box.height <= 1 && (hiddenPattern || clipped || style.overflow === 'hidden')
+    const visuallyHidden = style.visibility === 'hidden' || style.display === 'none' || tinyHidden || offscreenHidden
+    const padding = `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
     return {
-      tag: element.tagName.toLowerCase(), id: element.id || '',
+      tag: element.tagName.toLowerCase(), role: element.getAttribute('role') || undefined, id: element.id || '',
       className: typeof element.className === 'string' ? element.className.slice(0, 120) : '',
       text: (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 100),
       selector: selectorFor(element), x: Math.round(box.x), y: Math.round(box.y),
       width: Math.round(box.width), height: Math.round(box.height), right: Math.round(box.right), bottom: Math.round(box.bottom),
       position: style.position, fontSize: style.fontSize, lineHeight: style.lineHeight,
       visible: box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none',
+      visuallyHidden,
+      interactiveAncestorSelector: interactiveAncestor ? selectorFor(interactiveAncestor) : undefined,
+      padding,
     }
   }
   const all = [...document.querySelectorAll('body *')].filter((element) => {
@@ -59,7 +70,13 @@ const measurementScript = () => {
   const bodyScrollWidth = Math.max(document.documentElement.scrollWidth, document.body?.scrollWidth || 0)
   const bodyScrollHeight = Math.max(document.documentElement.scrollHeight, document.body?.scrollHeight || 0)
   const images = [...document.images].map(rect)
-  const controls = [...document.querySelectorAll('button, a, input, select, textarea')].map(rect)
+  const controls = [...document.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"]')].map((element) => {
+    const measured = rect(element)
+    const box = element.getBoundingClientRect()
+    const hit = document.elementFromPoint(box.left + Math.max(0, Math.min(box.width - 1, box.width / 2)), box.top + Math.max(0, Math.min(box.height - 1, box.height / 2)))
+    const resolvedHit = hit?.closest?.('button, a, input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="menuitem"]')
+    return { ...measured, hitTestSelector: resolvedHit ? selectorFor(resolvedHit) : undefined, hitTestTag: resolvedHit?.tagName?.toLowerCase() }
+  })
   return { viewport, bodyScrollWidth, bodyScrollHeight, horizontalOverflow: bodyScrollWidth > viewport.width + 1, verticalOverflow: bodyScrollHeight > viewport.height + 1, overflow, fixed, headings, images, controls, regions, textBlocks, textLength: bodyText.trim().length }
 }
 

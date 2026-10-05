@@ -63,6 +63,7 @@ export type ProjectEvidence = {
 
 export type RenderElement = {
   tag: string
+  role?: string
   id: string
   className: string
   text: string
@@ -77,6 +78,11 @@ export type RenderElement = {
   fontSize: string
   lineHeight: string
   visible: boolean
+  visuallyHidden?: boolean
+  interactiveAncestorSelector?: string
+  hitTestSelector?: string
+  hitTestTag?: string
+  padding?: string
 }
 
 export type RenderViewport = {

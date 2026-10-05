@@ -10,7 +10,9 @@
     "test:fetch-url": "node scripts/test-fetch-url.mjs",
     "test:render-url": "node scripts/test-render-url.mjs",
     "test:correlation": "tsx scripts/test-correlation.ts",
-    "test:real-sites": "tsx scripts/test-real-sites.ts"
+    "test:real-sites": "tsx scripts/test-real-sites.ts",
+    "test:m33": "tsx scripts/test-m33.ts",
+    "test:m33:adversarial": "tsx scripts/test-m33-adversarial.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
