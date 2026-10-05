@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { Finding, FindingCorrelation, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
+import type { Finding, FindingCorrelation, FindingProvenance, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
 
 const textExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|md|json)$/i
 const sourceExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|tsx?|jsx?)$/i
@@ -277,6 +277,35 @@ function correlateFindings(findings: Finding[], project: ProjectEvidence) {
   return correlated
 }
 
+function provenanceFor(finding: Finding): FindingProvenance | undefined {
+  if (finding.evidenceRef) {
+    return {
+      status: 'grounded',
+      kind: 'rendered',
+      location: finding.location,
+      route: finding.evidenceRef.route,
+      viewport: finding.evidenceRef.viewport,
+      selector: finding.evidenceRef.selector,
+      measurement: finding.evidenceRef.measurement,
+      screenshot: finding.evidenceRef.screenshot,
+    }
+  }
+  const sourceFile = finding.location.split(' → ')[0]?.trim()
+  if (!sourceFile || !finding.evidence.trim()) return undefined
+  return { status: 'grounded', kind: 'source', location: finding.location, sourceFile }
+}
+
+export function validateFindingEvidence(findings: Finding[]) {
+  return findings.filter((finding) => Boolean(
+    finding.provenance?.status === 'grounded'
+      && finding.evidence.trim()
+      && finding.problem.trim()
+      && finding.cause.trim()
+      && finding.impact.trim()
+      && finding.fix.trim(),
+  ))
+}
+
 function extractRenderedFindings(render: RenderEvidence, location: string): Finding[] {
   if (!render.available) return []
   const findings: Finding[] = []
@@ -374,5 +403,10 @@ export function generateFindings(project: ProjectEvidence): Finding[] {
       project.sourceLabel))
   }
 
-  return correlateFindings(findings, project).map((finding, index) => ({ ...finding, id: `F-${String(index + 1).padStart(2, '0')}` }))
+  const correlated = correlateFindings(findings, project).map((finding, index) => ({
+    ...finding,
+    id: `F-${String(index + 1).padStart(2, '0')}`,
+    provenance: provenanceFor(finding),
+  }))
+  return validateFindingEvidence(correlated)
 }

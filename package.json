@@ -12,7 +12,8 @@
     "test:correlation": "tsx scripts/test-correlation.ts",
     "test:real-sites": "tsx scripts/test-real-sites.ts",
     "test:m33": "tsx scripts/test-m33.ts",
-    "test:m33:adversarial": "tsx scripts/test-m33-adversarial.ts"
+    "test:m33:adversarial": "tsx scripts/test-m33-adversarial.ts",
+    "test:m4": "tsx scripts/test-m4-provenance.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

@@ -28,6 +28,18 @@ export type FindingCorrelation = {
   sourceEvidence?: string
 }
 
+export type FindingProvenance = {
+  status: 'grounded'
+  kind: 'source' | 'rendered'
+  location: string
+  route?: string
+  viewport?: string
+  selector?: string
+  measurement?: string
+  screenshot?: string
+  sourceFile?: string
+}
+
 export type Finding = {
   id: string
   title: string
@@ -52,6 +64,7 @@ export type Finding = {
     measurement?: string
   }
   correlation?: FindingCorrelation
+  provenance?: FindingProvenance
 }
 
 export type ProjectEvidence = {
