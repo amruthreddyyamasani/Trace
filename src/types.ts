@@ -14,6 +14,20 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
 
 export type RootCauseConfidence = 'High' | 'Medium' | 'Low'
 
+export type VerificationState = 'Observed' | 'Measured' | 'Behaviorally verified' | 'Inferred' | 'Not verified'
+export type FindingTriage = 'Actionable' | 'Needs review' | 'Informational'
+
+export type FindingAssessment = {
+  fact: string
+  inference: string
+  recommendation: string
+  verification: VerificationState
+  behavior: 'Behaviorally verified' | 'Not verified'
+  evidenceStrength: RootCauseConfidence
+  triage: FindingTriage
+  triageReason: string
+}
+
 export type FindingCorrelation = {
   observation: string
   rule: string
@@ -65,6 +79,7 @@ export type Finding = {
   }
   correlation?: FindingCorrelation
   provenance?: FindingProvenance
+  assessment?: FindingAssessment
 }
 
 export type ProjectEvidence = {

@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { Finding, FindingCorrelation, FindingProvenance, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
+import type { Finding, FindingAssessment, FindingCorrelation, FindingProvenance, InputKind, ProjectEvidence, RenderEvidence, RenderViewport, Severity } from './types'
 
 const textExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|md|json)$/i
 const sourceExtensions = /\.(html?|css|scss|tsx?|jsx?|vue|svelte|tsx?|jsx?)$/i
@@ -30,8 +30,10 @@ function makeFinding(
   impact: string,
   fix: string,
   location: string,
-  options?: { severityReason?: string; evidenceRef?: Finding['evidenceRef'] },
+  options?: { severityReason?: string; evidenceRef?: Finding['evidenceRef']; verification?: FindingAssessment['verification']; evidenceStrength?: FindingAssessment['evidenceStrength']; triage?: FindingAssessment['triage']; triageReason?: string },
 ): Finding {
+  const verification = options?.verification ?? 'Observed'
+  const triage = options?.triage ?? (score >= 6 ? 'Actionable' : 'Needs review')
   return {
     id: `F-${String(index).padStart(2, '0')}`,
     title: problem,
@@ -49,6 +51,16 @@ function makeFinding(
     status: 'open',
     severityReason: options?.severityReason,
     evidenceRef: options?.evidenceRef,
+    assessment: {
+      fact: evidence,
+      inference: cause,
+      recommendation: fix,
+      verification,
+      behavior: 'Not verified',
+      evidenceStrength: options?.evidenceStrength ?? (verification === 'Measured' ? 'Medium' : 'High'),
+      triage,
+      triageReason: options?.triageReason ?? (triage === 'Actionable' ? 'Concrete source or rendered evidence supports a focused engineering change.' : 'The evidence is real but should be reviewed in product context before changing code.'),
+    },
   }
 }
 
@@ -182,7 +194,8 @@ export async function inspectInput(kind: InputKind, value: string, file?: File):
 
 function renderFinding(score: number, category: string, problem: string, evidence: string, cause: string, impact: string, fix: string, location: string, evidenceRef: Finding['evidenceRef']) {
   const severityReason = score >= 8 ? 'HIGH — the measured defect affects viewport access or a primary reading path.' : score >= 6 ? 'MEDIUM — the measured defect affects a control or responsive presentation.' : 'LOW — the measured difference is observable but does not block the rendered experience.'
-  return makeFinding(0, category, score, problem, evidence, cause, impact, fix, location, { severityReason, evidenceRef })
+  const triage = /text block|interactive target/i.test(problem) ? 'Needs review' : 'Actionable'
+  return makeFinding(0, category, score, problem, evidence, cause, impact, fix, location, { severityReason, evidenceRef, verification: 'Measured', evidenceStrength: 'Medium', triage, triageReason: triage === 'Needs review' ? 'The measurement is concrete, but usability impact or intended interaction is not behaviorally verified.' : 'A concrete rendered measurement identifies a focused engineering investigation.' })
 }
 
 function viewportById(viewports: RenderViewport[] | undefined, id: RenderViewport['id']) {
@@ -318,7 +331,7 @@ function extractRenderedFindings(render: RenderEvidence, location: string): Find
     if (mobile.metrics.horizontalOverflow) {
       const culprit = mobile.metrics.overflow[0]
       const detail = culprit ? ` ${culprit.selector} measures ${culprit.width}px wide at x=${culprit.x}px (right edge ${culprit.right}px).` : ''
-      findings.push(renderFinding(8, 'Layout / responsive', 'The page overflows horizontally on mobile.', `At ${mobile.width}×${mobile.height}, document scroll width is ${mobile.metrics.bodyScrollWidth}px, exceeding the viewport by ${mobile.metrics.bodyScrollWidth - mobile.width}px.${detail}`, 'A rendered element or fixed-width container is wider than the mobile viewport.', 'Users must horizontally scroll and may miss content or controls.', 'Allow the affected container to shrink or wrap at the mobile breakpoint, then verify the 390px render.', `${routeLocation} → ${mobile.width}×${mobile.height}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, culprit?.selector), selector: culprit?.selector, measurement: `${mobile.metrics.bodyScrollWidth}px scroll width vs ${mobile.width}px viewport` }))
+      findings.push(renderFinding(8, 'Layout / responsive', 'The page overflows horizontally on mobile.', `At ${mobile.width}×${mobile.height}, document scroll width is ${mobile.metrics.bodyScrollWidth}px, exceeding the viewport by ${mobile.metrics.bodyScrollWidth - mobile.width}px.${detail}`, 'Inference — a rendered element or fixed-width container may be wider than the mobile viewport; the measurement proves overflow, not the owning CSS rule.', 'Users may need horizontal scrolling and may miss content or controls.', 'Inspect the referenced element and containing block; allow the responsible container to shrink or wrap only if the overflow is unintended, then verify the 390px render.', `${routeLocation} → ${mobile.width}×${mobile.height}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, culprit?.selector), selector: culprit?.selector, measurement: `${mobile.metrics.bodyScrollWidth}px scroll width vs ${mobile.width}px viewport` }))
     }
     const mobileControls = mobile.metrics.controls.filter((control) => {
       const semantic = /^(button|a|input|select|textarea)$/.test(control.tag) || /^(button|link|checkbox|menuitem)$/.test(control.role ?? '') || Boolean(control.interactiveAncestorSelector)
@@ -328,26 +341,28 @@ function extractRenderedFindings(render: RenderEvidence, location: string): Find
     })
     if (mobileControls.length) {
       const control = mobileControls[0]
-      findings.push(renderFinding(6, 'Interaction / responsive', 'A mobile interactive target is smaller than 44×44 CSS pixels.', `At ${mobile.width}×${mobile.height}, the actual ${control.tag} target ${control.selector} measures ${control.width}×${control.height}px; hit-test resolved to ${control.hitTestSelector ?? control.selector}${control.padding ? ` with computed padding ${control.padding}` : ''}.`, 'The actual semantic interactive element remains compact; TRACE did not substitute an inner icon or descendant box for the target geometry.', 'Touch users may miss a genuinely small control or trigger an adjacent action.', 'Increase the actual interactive hit area to at least 44×44px while preserving the visual icon or label size.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${control.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, control.selector), selector: control.selector, measurement: `${control.width}×${control.height}px` }))
+      findings.push(renderFinding(6, 'Interaction / responsive', 'A mobile interactive target is smaller than 44×44 CSS pixels.', `At ${mobile.width}×${mobile.height}, the actual ${control.tag} target ${control.selector} measures ${control.width}×${control.height}px; hit-test resolved to ${control.hitTestSelector ?? control.selector}${control.padding ? ` with computed padding ${control.padding}` : ''}.`, 'Inference — the semantic interactive element is compact; TRACE did not test activation success, neighboring target spacing, or whether the visible control is intentionally dense.', 'The measured hit area may be difficult for touch users to activate, but the usability impact is not behaviorally verified.', 'Review the control in context and consider increasing the hit area to at least 44×44px while preserving the visual icon or label size; verify with touch and keyboard interaction.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${control.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, control.selector), selector: control.selector, measurement: `${control.width}×${control.height}px` }))
     }
     const mobileImages = mobile.metrics.images.filter((image) => image.right > mobile.width + 1 || image.width > mobile.width)
     if (mobileImages.length && !mobile.metrics.horizontalOverflow) {
       const image = mobileImages[0]
-      findings.push(renderFinding(7, 'Layout / responsive', 'An image extends beyond its mobile container.', `At ${mobile.width}×${mobile.height}, ${image.selector} measures ${image.width}px wide and reaches x=${image.right}px.`, 'The image width is not constrained by its rendered container.', 'The image can be clipped or force a narrow layout around it.', 'Set a responsive max-width and preserve the image aspect ratio within its container.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${image.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, image.selector), selector: image.selector, measurement: `${image.width}px wide; right edge ${image.right}px` }))
+      findings.push(renderFinding(7, 'Layout / responsive', 'An image extends beyond its mobile container.', `At ${mobile.width}×${mobile.height}, ${image.selector} measures ${image.width}px wide and reaches x=${image.right}px.`, 'Inference — the image box extends beyond the viewport; the current evidence does not prove whether the cause is width, transform, positioning, or an ancestor containing block.', 'The image or its containing layout may be clipped or force a narrow layout around it.', 'Inspect the image’s containing block and positioning before changing width; apply a responsive max-width only if the overflow is unintended, then verify the mobile render.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${image.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, image.selector), selector: image.selector, measurement: `${image.width}px wide; right edge ${image.right}px` }))
     }
     const desktopHeading = desktop.metrics.headings.find((heading) => heading.tag === 'h1')
     const mobileHeading = mobile.metrics.headings.find((heading) => heading.tag === 'h1')
     if (desktopHeading && mobileHeading && (mobileHeading.width > mobile.width * 1.05 || mobileHeading.width / Math.max(1, desktopHeading.width) > 1.35)) {
-      findings.push(renderFinding(7, 'Typography / responsive', 'The primary heading does not fit the mobile content width.', `At ${mobile.width}×${mobile.height}, ${mobileHeading.selector} measures ${mobileHeading.width}px against a ${mobile.width}px viewport; the same element measures ${desktopHeading.width}px at ${desktop.width}px.`, 'The heading typography or its containing block does not adapt to the mobile width.', 'The primary message can clip or force horizontal scrolling before the user reaches the main action.', 'Use fluid typography and a max-width that fits the mobile content inset.', `${routeLocation} → ${mobileHeading.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, mobileHeading.selector), selector: mobileHeading.selector, measurement: `${mobileHeading.width}px mobile vs ${desktopHeading.width}px desktop` }))
+      findings.push(renderFinding(7, 'Typography / responsive', 'The primary heading does not fit the mobile content width.', `At ${mobile.width}×${mobile.height}, ${mobileHeading.selector} measures ${mobileHeading.width}px against a ${mobile.width}px viewport; the same element measures ${desktopHeading.width}px at ${desktop.width}px.`, 'Inference — the heading or its containing block does not adapt to the mobile width; the measurement does not identify whether typography, width, or positioning owns the constraint.', 'The primary message may clip or contribute to horizontal scrolling before the user reaches the main action.', 'Inspect the heading’s containing block and responsive typography; adjust only the responsible constraint and verify the mobile render.', `${routeLocation} → ${mobileHeading.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, mobileHeading.selector), selector: mobileHeading.selector, measurement: `${mobileHeading.width}px mobile vs ${desktopHeading.width}px desktop` }))
     }
     const fixedOutside = mobile.metrics.fixed.filter((element) => element.right > mobile.width + 1 || element.x < -1)
     if (fixedOutside.length) {
       const element = fixedOutside[0]
-      findings.push(renderFinding(6, 'Layout / interaction', 'A fixed-position element is outside the mobile viewport.', `At ${mobile.width}×${mobile.height}, ${element.selector} is ${element.position} and reaches x=${element.right}px.`, 'The fixed element is anchored to a width or offset larger than the viewport.', 'Persistent controls can become partially inaccessible and cover content.', 'Constrain the fixed element to the viewport and test its safe-area and mobile offsets.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${element.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, element.selector), selector: element.selector, measurement: `right edge ${element.right}px vs viewport ${mobile.width}px` }))
+      const side = element.x < -1 ? `left edge ${element.x}px` : `right edge ${element.right}px`
+      const problem = element.x < -1 ? 'A fixed-position element extends beyond the left mobile viewport edge.' : 'A fixed-position element extends beyond the right mobile viewport edge.'
+      findings.push(renderFinding(6, 'Layout / interaction', problem, `At ${mobile.width}×${mobile.height}, ${element.selector} is ${element.position}; ${side} vs viewport width ${mobile.width}px.`, 'Inference — the fixed element’s measured box crosses a viewport boundary; the current evidence does not prove whether it is an intentional off-canvas panel, backdrop, or unintended persistent control.', 'Content or controls may be occluded or partially inaccessible, but occlusion and activation were not behaviorally verified.', 'Inspect the fixed element’s intended state and containing offsets; constrain it to the viewport only if the captured state is unintended, then verify the relevant interaction state.', `${routeLocation} → ${mobile.width}×${mobile.height} → ${element.selector}`, { route: routeEvidence.route, viewport: `${mobile.width}×${mobile.height}`, screenshot: screenshotFor(mobile, element.selector), selector: element.selector, measurement: `${side} vs ${mobile.width}px viewport` }))
     }
     const desktopText = desktop.metrics.textBlocks.find((block) => block.width > 800 && block.text.length > 140)
     if (desktopText) {
-      findings.push(renderFinding(3, 'Typography', 'A rendered text block exceeds a readable line width.', `At ${desktop.width}×${desktop.height}, ${desktopText.selector} measures ${desktopText.width}px wide and contains ${desktopText.text.length}+ visible characters.`, 'The text container has no measured max-width for long-form copy.', 'Long lines increase scanning distance and make the content harder to track.', 'Constrain long-form text to a readable measure and verify the resulting line wrapping.', `${routeLocation} → ${desktop.width}×${desktop.height} → ${desktopText.selector}`, { route: routeEvidence.route, viewport: `${desktop.width}×${desktop.height}`, screenshot: desktop.screenshot, selector: desktopText.selector, measurement: `${desktopText.width}px rendered width` }))
+      findings.push(renderFinding(3, 'Typography', 'A rendered text block exceeds a readable line width.', `At ${desktop.width}×${desktop.height}, ${desktopText.selector} measures ${desktopText.width}px wide and contains ${desktopText.text.length}+ visible characters.`, 'Inference — the text block is wide in the captured render; TRACE did not measure line length, reading speed, or the intended content type.', 'Long lines may increase scanning distance, but the reading impact is not behaviorally verified.', 'Review whether the block is long-form content; constrain it to a readable measure only if the content and layout intent support that change.', `${routeLocation} → ${desktop.width}×${desktop.height} → ${desktopText.selector}`, { route: routeEvidence.route, viewport: `${desktop.width}×${desktop.height}`, screenshot: desktop.screenshot, selector: desktopText.selector, measurement: `${desktopText.width}px rendered width` }))
     }
   }
   return findings
@@ -407,6 +422,12 @@ export function generateFindings(project: ProjectEvidence): Finding[] {
     ...finding,
     id: `F-${String(index + 1).padStart(2, '0')}`,
     provenance: provenanceFor(finding),
+    assessment: finding.assessment ? {
+      ...finding.assessment,
+      fact: finding.evidence,
+      inference: finding.cause,
+      recommendation: finding.fix,
+    } : undefined,
   }))
   return validateFindingEvidence(correlated)
 }
